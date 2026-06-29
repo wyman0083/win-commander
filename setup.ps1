@@ -1,7 +1,7 @@
 # =====================================================================
 #          IT 專業雲端部署 - 終極一鍵裝機總司令 (二合一完美集成版)
 # =====================================================================
-# 功能：權限獲取 + 電源調校 + 時間對時 + 三語部署 + 清理預載 + 8款智慧安裝 + VPN引導
+# 功能：權限獲取 + 電源調校 + 時間對時 + 三語部署 + 驅動/補丁更新 + 清理預載 + 8款智慧安裝 + VPN引導
 
 # 1. 強制以系統管理員權限執行（支援直接複製貼上或執行檔案）
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -36,7 +36,7 @@ if (Test-Connection -ComputerName 8.8.8.8 -Count 1 -Quiet) {
 Write-Host "-------------------------------------------------------"
 
 # ==================== STAGE 1: Windows 系統環境調校 ====================
-Write-Host "[階段 1/4] 正在調校 Windows 電源、睡眠與按鈕設定..." -ForegroundColor Cyan
+Write-Host "[階段 1/5] 正在調校 Windows 電源、睡眠與按鈕設定..." -ForegroundColor Cyan
 
 # 設定插電為 Best Performance (最佳效能)，用電池為 Balanced (平衡)
 powercfg /setacvalueindex SCHEME_CURRENT SUB_NONE OVERLAYFLAGS 2  # 2 = Best Performance
@@ -85,8 +85,35 @@ Set-WinUserLanguageList -LanguageList $UserLanguages -Force
 Write-Host "  -> [成功] 語系配置完成！預設語言已鎖定為 English (US)。" -ForegroundColor Green
 Write-Host "-------------------------------------------------------"
 
-# ==================== STAGE 2: 預載流氓軟體強力清理 ====================
-Write-Host "[階段 2/4] 正在檢查並強制拔除預載軟體 (McAfee / Microsoft 365)..." -ForegroundColor Cyan
+
+# ==================== 【全新加回】STAGE 2: Windows 補丁與硬體驅動更新 ====================
+Write-Host "[階段 2/5] 正在檢查並更新 Windows 系統補丁與硬體驅動..." -ForegroundColor Cyan
+Write-Host "  -> 正在線上載入 PSWindowsUpdate 核心模組..." -ForegroundColor Gray
+
+# 預先配置 NuGet 補丁，防止舊系統連線出錯
+$Null = Set-ExecutionPolicy RemoteSigned -Scope Process -Force
+Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -ErrorAction SilentlyContinue
+
+# 修正不相容參數：移除原本會導致紅字報錯的 -AcceptLicense，改用相容於 PowerShell 5.1 的相容寫法
+Install-Module -Name PSWindowsUpdate -Force -SkipPublisherCheck -ErrorAction SilentlyContinue
+Import-Module PSWindowsUpdate -ErrorAction SilentlyContinue
+
+if (Get-Command Set-WUSettings -ErrorAction SilentlyContinue) {
+    # 啟用微軟其他產品更新支援 (包含 Office、獨立驅動程式等)
+    Set-WUSettings -MicrosoftUpdate -AcceptByPass | Out-Null
+    Write-Host "  -> 正在背景檢索並自動安裝所有 Windows 更新與硬體驅動 (請稍候)..." -ForegroundColor Yellow
+    
+    # 執行地毯式補丁與驅動背景下載安裝
+    Get-WindowsUpdate -MicrosoftUpdate -AcceptAll -Install -AutoReboot:$false | Out-Null
+    Write-Host "  -> [成功] 所有系統安全補丁與硬體驅動已成功部署完畢！" -ForegroundColor Green
+} else {
+    Write-Host "  -> [提示] 核心更新組件載入受阻，已自動跳過線上更新步驟。" -ForegroundColor Yellow
+}
+Write-Host "-------------------------------------------------------"
+
+
+# ==================== STAGE 3: 預載流氓軟體強力清理 ====================
+Write-Host "[階段 3/5] 正在檢查並強制拔除預載軟體 (McAfee / Microsoft 365)..." -ForegroundColor Cyan
 
 # 1. McAfee 移除
 $mcafeeCheck = winget list --name McAfee --accept-source-agreements 2>$null
@@ -101,7 +128,7 @@ if ($mcafeeCheck) {
 # 2. Microsoft 365 強制移除 (地毯式自動化精準匹配，包含 cn / en / tw 等所有語言)
 Write-Host "  -> 正在安全檢索所有版本的 Microsoft 365 辦公套件..." -ForegroundColor Gray
 
-# 【核心修正】直接從 Windows 系統註冊表精準撈出所有叫 "Microsoft 365" 的軟體，但絕對排除 Copilot
+# 從 Windows 系統註冊表精準撈出所有叫 "Microsoft 365" 的軟體，但絕對排除 Copilot
 $o365InstalledList = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", 
                                       "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*", 
                                       "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | 
@@ -112,7 +139,6 @@ if ($o365InstalledList) {
     foreach ($app in $o365InstalledList) {
         $appName = $app.DisplayName
         Write-Host "     正在拔除: $appName ..." -ForegroundColor DarkYellow
-        # 不管是 en-us, zh-tw 還是 zh-cn，通通帶入變數直接精準移除
         winget uninstall --name "$appName" --silent --accept-source-agreements 2>$null
     }
     Write-Host "  -> [完成] 所有語言版本的 Microsoft 365 辦公套件解除安裝命令已發送。" -ForegroundColor Green
@@ -130,8 +156,8 @@ if ($copilotCheck) {
 Write-Host "-------------------------------------------------------"
 
 
-# ==================== STAGE 3: 8款常用軟體智慧部署 ====================
-Write-Host "[階段 3/4] 正在執行 8 款軟體智能檢查與背景安裝..." -ForegroundColor Cyan
+# ==================== STAGE 4: 8款常用軟體智慧部署 ====================
+Write-Host "[階段 4/5] 正在執行 8 款軟體智能檢查與背景安裝..." -ForegroundColor Cyan
 
 $apps = @(
     "7zip.7zip",
@@ -168,8 +194,9 @@ foreach ($app in $apps) {
     }
 }
 
-# ==================== STAGE 4: FortiClient VPN 安全部署 ====================
-Write-Host "[階段 4/4] 正在準備部署 FortiClient VPN 指定版本 (7.2.9)..." -ForegroundColor Cyan
+
+# ==================== STAGE 5: FortiClient VPN 安全部署 ====================
+Write-Host "[階段 5/5] 正在準備部署 FortiClient VPN 指定版本 (7.2.9)..." -ForegroundColor Cyan
 Write-Host "提示：由於 FortiClient 官方限制較多，稍後將彈出介面供你手動點選下一步。" -ForegroundColor Yellow
 
 # 線上直接抓取指定版本進行安全引導部署
@@ -177,11 +204,12 @@ winget install --id Fortinet.FortiClientVPN --version 7.2.9.1185 --accept-source
 Write-Host "  -> [完成] FortiClient 安裝視窗已拉起，請手動完成最後安裝步驟。" -ForegroundColor Green
 Write-Host "-------------------------------------------------------"
 
-# ==================== STAGE 5: 部署大功告成 ====================
+
+# ==================== 部署大功告成 ====================
 Write-Host "=======================================================" -ForegroundColor Green
-Write-Host "大功告成！所有系統優化、清理、多語言與 8+1 款軟體配置完畢！" -ForegroundColor Green
+Write-Host "大功告成！所有系統優化、補丁/驅動更新、多語言與 8+1 款軟體配置完畢！" -ForegroundColor Green
 Write-Host "=======================================================" -ForegroundColor Green
-Write-Host "提示：部分系統語言切換需在使用者「登出並重新登入」後完全生效。" -ForegroundColor Yellow
+Write-Host "提示：由於加載了硬體驅動更新與語言切換，強烈建議在電腦「重新啟動」後完全生效。" -ForegroundColor Yellow
 Write-Host ""
 
 Read-Host "按 Enter 鍵關閉本視窗..."
