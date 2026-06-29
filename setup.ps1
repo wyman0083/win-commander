@@ -98,20 +98,37 @@ if ($mcafeeCheck) {
     Write-Host "  -> [跳過] 本機未發現 McAfee 殘留。" -ForegroundColor Gray
 }
 
-# 2. Microsoft 365 強制移除 (精準過濾、保留 Copilot)
-$o365Check = winget list --name "Microsoft 365" --accept-source-agreements 2>$null
-if ($o365Check) {
-    Write-Host "  -> 偵測到本機預載 Microsoft 365 辦公套件，正在執行靜默強制移除..." -ForegroundColor Yellow
-    # 使用精確名稱過濾，避免 winget 誤傷其他包含微軟字樣的應用
-    winget uninstall --name "Microsoft 365" --silent --accept-source-agreements
-    Write-Host "  -> [完成] Microsoft 365 解除安裝命令已發送。" -ForegroundColor Green
+# 2. Microsoft 365 強制移除 (地毯式自動化精準匹配，包含 cn / en / tw 等所有語言)
+Write-Host "  -> 正在安全檢索所有版本的 Microsoft 365 辦公套件..." -ForegroundColor Gray
+
+# 【核心修正】直接從 Windows 系統註冊表精準撈出所有叫 "Microsoft 365" 的軟體，但絕對排除 Copilot
+$o365InstalledList = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", 
+                                      "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*", 
+                                      "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | 
+                     Where-Object { $_.DisplayName -match "Microsoft 365" -and $_.DisplayName -notmatch "Copilot" }
+
+if ($o365InstalledList) {
+    Write-Host "  -> 偵測到本機存在 Microsoft 365 預載組件，開始自動化逐一強制卸載..." -ForegroundColor Yellow
+    foreach ($app in $o365InstalledList) {
+        $appName = $app.DisplayName
+        Write-Host "     正在拔除: $appName ..." -ForegroundColor DarkYellow
+        # 不管是 en-us, zh-tw 還是 zh-cn，通通帶入變數直接精準移除
+        winget uninstall --name "$appName" --silent --accept-source-agreements 2>$null
+    }
+    Write-Host "  -> [完成] 所有語言版本的 Microsoft 365 辦公套件解除安裝命令已發送。" -ForegroundColor Green
 } else {
-    Write-Host "  -> [跳過] 本機未發現預載的 Microsoft 365。" -ForegroundColor Gray
+    Write-Host "  -> [跳過] 本機未發現任何語言版本的 Microsoft 365 辦公套件。" -ForegroundColor Gray
 }
 
-# 3. 獨立 Copilot 狀態聲明
-Write-Host "  -> [保留] 獨立 Microsoft Copilot 應用已成功跳過，安全留存。" -ForegroundColor Green
+# 3. 獨立 Copilot 安全性防護確認
+$copilotCheck = winget list --id "9WZDNCRD2V9V" --accept-source-agreements 2>$null
+if ($copilotCheck) {
+    Write-Host "  -> [安全保留] 成功鎖定獨立 Microsoft Copilot 應用，已安全跳過並留存本機！" -ForegroundColor Green
+} else {
+    Write-Host "  -> [提示] 本機目前未發現獨立 Copilot 應用，或已被其他系統組件隱藏。" -ForegroundColor Yellow
+}
 Write-Host "-------------------------------------------------------"
+
 
 # ==================== STAGE 3: 8款常用軟體智慧部署 ====================
 Write-Host "[階段 3/4] 正在執行 8 款軟體智能檢查與背景安裝..." -ForegroundColor Cyan
